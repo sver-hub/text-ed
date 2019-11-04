@@ -12,8 +12,8 @@
 #include <string.h>
 
 #define CTRL_KEY(k) ((k) & 0x1f)
-#define KILO_VERSION "0.0.1"
-#define KILO_TAB_STOP 8
+#define VERSION "0.0.1"
+#define TAB_SIZE 8
 
 enum editorKey
 {
@@ -75,10 +75,7 @@ int getWindowSize(int *rows, int *cols);
 int editorRowCxToRx(erow *row, int cx);
 void editorUpdateRow(erow *row);
 void editorInsertRow(int at, char *s, size_t len);
-void editorFreeRow(erow *row);
-void editorDelRow(int at);
 void editorRowInsertChar(erow *row, int at, int c);
-void editorRowDelChar(erow *row, int at);
 //file i/o
 char *editorRowsToString(int *buflen);
 void editorOpen();
@@ -284,30 +281,31 @@ int editorRowCxToRx(erow *row, int cx)
   for (j = 0; j < cx; j++)
   {
     if (row->chars[j] == '\t')
-      rx += (KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP);
+      rx += (TAB_SIZE - 1) - (rx % TAB_SIZE);
     rx++;
   }
   return rx;
 }
 
+/* convert line to rendered line by changing tabs('\t') to needed number of spaces */
 void editorUpdateRow(erow *row)
 {
   int tabs = 0;
   int j;
+  int idx = 0;
 
   for (j = 0; j < row->size; j++)
     if (row->chars[j] == '\t') tabs++;
 
   free(row->render);
-  row->render = malloc(row->size + tabs*(KILO_TAB_STOP - 1) + 1);
+  row->render = malloc(row->size + tabs*(TAB_SIZE - 1) + 1);
 
-  int idx = 0;
   for (j = 0; j < row->size; j++)
   {
     if (row->chars[j] == '\t')
     {
       row->render[idx++] = ' ';
-      while (idx % KILO_TAB_STOP != 0) row->render[idx++] = ' ';
+      while (idx % TAB_SIZE != 0) row->render[idx++] = ' ';
     }
     else
     {
@@ -338,21 +336,6 @@ void editorInsertRow(int at, char *s, size_t len)
   E.dirty++;
 }
 
-void editorFreeRow(erow *row)
-{
-  free(row->render);
-  free(row->chars);
-}
-
-void editorDelRow(int at)
-{
-  if (at < 0 || at >= E.numrows) return;
-  editorFreeRow(&E.row[at]);
-  memmove(&E.row[at], &E.row[at + 1], sizeof(erow) * (E.numrows - at - 1));
-  E.numrows--;
-  E.dirty++;
-}
-
 void editorRowInsertChar(erow *row, int at, int c)
 {
   if (at < 0 || at > row->size) 
@@ -373,15 +356,6 @@ void editorRowAppendString(erow *row, char *s, size_t len)
   memcpy(&row->chars[row->size], s, len);
   row->size += len;
   row->chars[row->size] = '\0';
-  editorUpdateRow(row);
-  E.dirty++;
-}
-
-void editorRowDelChar(erow *row, int at)
-{
-  if (at < 0 || at >= row->size) return;
-  memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
-  row->size--;
   editorUpdateRow(row);
   E.dirty++;
 }
@@ -424,15 +398,25 @@ void editorDelChar()
   if (E.cx == 0 && E.cy == 0) return;
 
   erow *row = &E.row[E.cy];
-  if (E.cx > 0) {
-    editorRowDelChar(row, E.cx - 1);
+  if (E.cx > 0 && E.cx < row->size) {
+    memmove(&row->chars[E.cx - 1], &row->chars[E.cx], row->size - E.cx + 1);
+    row->size--;
+    editorUpdateRow(row);
+    E.dirty++;
     E.cx--;
   }
   else
   {
     E.cx = E.row[E.cy - 1].size;
     editorRowAppendString(&E.row[E.cy - 1], row->chars, row->size);
-    editorDelRow(E.cy);
+    if (E.cy >= 0 && E.cy < E.numrows)
+    {
+      free(E.row[E.cy].render);
+      free(E.row[E.cy].chars);
+      memmove(&E.row[E.cy], &E.row[E.cy + 1], sizeof(erow) * (E.numrows - E.cy - 1));
+      E.numrows--;
+      E.dirty++;
+    }
     E.cy--;
   }
 }
@@ -641,7 +625,7 @@ void editorProcessKeypress()
       if (E.dirty) 
       {
         editorSetStatusMessage("WARNING!!! File has unsaved changes. "
-            "Press Ctrl-Q %d more times to quit.", quit_times);
+            "Press Ctrl-Q more times to quit.");
         return;
       }
 
@@ -748,7 +732,7 @@ void editorDrawRows(struct abuf *ab)
       {
         char welcome[80];
         int welcomelen = snprintf(welcome, sizeof(welcome),
-          "Kilo editor -- version %s", KILO_VERSION);
+          "Kilo editor -- version %s", VERSION);
 
         if (welcomelen > E.screencols) 
         	welcomelen = E.screencols;
