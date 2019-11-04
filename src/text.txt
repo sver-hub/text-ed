@@ -1,9 +1,0 @@
-In Linux, Logical Volume Manager 	(LVM) is a device 	mapper target that provides logical volume management for the Linux kernel.
- Most modern Linux distributions are LVM-aware 	to the point of being 
-able to have their root file 	systems on a logical volume.[3][4][5]
-
-Heinz Mauelshagen wrote the original LVM code in 1998, when he 
-was working at Sistina Software, 
-taking its primary 
-design guidelines from 
-the HP-UX's volume manager.[1]
