@@ -22,11 +22,7 @@ struct text
 	int num;
 };
 
-struct buf
-{
-  char *b;
-  int len;
-};
+
 
 struct config
 {
@@ -58,8 +54,9 @@ void set_numbers(int k);
 void set_tabwidth(int k);
 ssize_t line_insert_tabs(char** line, str current);
 int print_pages();
-int print_page(int page, int offset);
-void test();
+int print_page(int start, int offset);
+int insert_symbols(str *line, char* s, int pos, int num);
+int replace_symbols(str *line, char *s, int pos, int num);
 
 
 
@@ -70,6 +67,7 @@ int main(int argc, char **argv)
   {
     from_file(argv[1]);
   }
+  //replace_symbols(&T.lines[0], "ass", 8, 3);
   print_pages();
 }
 
@@ -82,11 +80,15 @@ int init()
   E.numbers = 0;
   E.filename = NULL;
   get_window_size(&E.height, &E.width);
+  E.height -= 1;
   init_modes();
 
   return 0;
 }
 
+/* LOW LEVEL STUFF 
+  ________________
+*/
 int init_modes()
 {
   if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1)
@@ -152,18 +154,9 @@ int get_window_size(int *rows, int *cols)
   }
 }
 
-int buf_append(struct buf *ab, const char *s, size_t len)
-{
-  char *new = realloc(ab->b, ab->len + len);
-  if (new == NULL) return MEM_ERROR;
-
-  memcpy(&new[ab->len], s, len);
-  ab->b = new;
-  ab->len += len;
-
-  return 0;
-}
-
+/* GETTING LINES FROM FILE
+  _______________________
+*/
 ssize_t get_line(FILE *f, char **line, int *eofflag)
 {
     char* buff = NULL;
@@ -258,6 +251,9 @@ void from_file(char *filename)
   fclose(fp);
 }
 
+/* SETTINGS 
+  _________
+*/
 void set_wrap(int k)
 {
   E.wrap = k;
@@ -273,6 +269,10 @@ void set_tabwidth(int k)
   E.tabwidth = k;
 }
 
+
+/* PRINT PAGES 
+  ____________
+*/
 ssize_t line_insert_tabs(char** line, str current)
 {
   int tabs = 0;
@@ -303,14 +303,156 @@ ssize_t line_insert_tabs(char** line, str current)
   return idx;
 }
 
+/*
+int to_append(char** append, int spaces, int wrap)
+{
+  char *tmp;
+  int j;
+  int mem;
+
+  mem = spaces;
+  if (wrap) mem += 4;
+
+  tmp = (char*)malloc(mem);
+  if (tmp == NULL) return MEM_ERROR;
+
+  for (j = 0; j < spaces; j++)
+  {
+    tmp[j] = ' ';
+  }
+  if (wrap)
+  {
+    tmp[j++] = '\r';
+    tmp[j++] = '\n';
+    tmp[j++] = '-';
+    tmp[j] = '>';
+  }
+
+  *append = tmp;
+
+  return 0;
+}
+
+int line_wrap(char** line, str current)
+{
+  int rows;
+  int j;
+  int spaces;
+  char *append;
+  str tmp;
+
+  tmp.chars = (char*) malloc(current.length);
+  if (tmp == NULL) return MEM_ERROR;
+
+  tmp.length = 0;
+  for (j = 0; j < current.length; j++)
+  {
+
+    if (current.chars[j] == '\t')
+    {
+      spaces = 1 + (tmp.length + 1) % E.tabwidth;
+      if ((tmp.length - rows*2) % E.width + spaces > E.width) 
+      {
+        spaces = E.width - (tmp.length - row*2) % E.width;
+        to_append(&insert, spaces, 1);
+        insert_symbols(&tmp, insert, tmp.length, 4 + spaces);
+      }
+      else
+      {
+        to_append(&insert, spaces, 0);
+      }
+      free(insert);
+    }
+
+
+  }
+}
+
+
+int substring(char** line, char* orig, int pos, int len)
+{
+  char *tmp;
+  int j;
+  int idx = 0;
+
+  tmp = (char*)malloc(len);
+  if (tmp == NULL) return MEM_ERROR;
+
+  for (j = pos; j < pos + len; j++)
+  {
+    tmp[idx++] = orig[j];
+  }
+
+  *line = tmp;
+
+  return 0;
+}
+
+int print_line(char* line, int len)
+{
+  int j;
+
+  for (j = 0; j < len; j++)
+  {
+    printf("%c", line[j]);
+  }
+}
+
+int line_wrap(char **line, str current)
+{
+  char *tmp;
+  int numrows = 0;
+  char *rendered = NULL;
+  char *row = NULL;
+  int rlength;
+  int idx = 0;
+  int start;
+  int len;
+  int j = 0;
+
+  rlength = line_insert_tabs(&rendered, current);
+  if (rlength == MEM_ERROR) return MEM_ERROR;
+
+  if (rlength <= E.width)
+  {
+    print_line(rendered, rlength);
+    return 1;
+  }
+
+  while (1)
+  {
+    start = idx;
+    while (idx - numrows*E.width < E.width && j < current.length)
+    {
+      if (current.chars[j++] == '\t')
+        idx += 1 + (idx + 1) % E.tabwidth;
+      else idx++;
+    }
+
+    if (numrows == 0) print_line(rendered, E.width);
+    else
+    {
+      len = idx - start;
+      if (len > E.width - 2) len = E.width;
+      substring(&row, rendered, start, len + 1);
+
+      tmp = (char*)realloc((char*)tmp, (numrows + 1)*E.width);
+      if (tmp == NULL) return MEM_ERROR;
+
+      memmove(&tmp[numrows * E.width], row, len);
+    }
+  }
+}
+*/
+
 int print_pages() 
 {
   int offset = 0;
-  int page = 0;
+  int start = 0;
   char c;
   int printed;
 
-  print_page(page, offset);
+  print_page(start, offset);
 
   while (1) 
   {
@@ -320,7 +462,8 @@ int print_pages()
 
     if (c == ' ')
     {
-      printed = print_page(++page, offset);
+      start += E.height;
+      printed = print_page(start, offset);
       if (printed == MEM_ERROR) return MEM_ERROR;
       if (printed == 0) break;
     }
@@ -330,11 +473,11 @@ int print_pages()
     }
     else if (c == '>' && E.wrap == 0)
     {
-      print_page(page, ++offset);
+      print_page(start, ++offset);
     }
     else if (c == '<' && E.wrap == 0 && offset > 0)
     {
-      print_page(page, --offset);
+      print_page(start, --offset);
     }
     c = 0;
   }
@@ -342,27 +485,32 @@ int print_pages()
   return 0;
 }
 
-int print_page(int page, int offset)
+int print_page(int start, int offset)
 {
 	int i;
+  int j;
+  int k;
+  int idx;
+  int numrows = 0;
+  int blank = 5;
   str *current;
   char *line;
   int length;
   char *towrite;
-  struct buf buffer;
+  int width;
 
-  buffer.b = NULL;
-  buffer.len = 0;
   line = NULL;
+  width = (E.numbers || E.wrap) ? E.width - blank : E.width;
 
-	for(i = 0; i < E.height; i++)
+	for (i = 0; i < E.height; i++)
 	{
-    current = page*E.height + i < T.num ? &T.lines[page*E.height + i] : NULL;
+    current = start + i < T.num ? &T.lines[start + i] : NULL;
     if (current == NULL)
     {
       if (i == 0) return 0;
-      while (i++ < E.height - 1)
+      while (i++ < E.height)
       {
+        if (E.numbers) printf("%*d ", blank - 1, start + i + 1);
         printf("\n");
       }
       return i;
@@ -371,25 +519,117 @@ int print_page(int page, int offset)
     length = line_insert_tabs(&line, *current);
     if (length == MEM_ERROR) return MEM_ERROR;
 
-    length -= offset;
-    if (length < 0) length = 0;
-    if (length > E.width) length = E.width;
-
-    towrite = malloc(length + 1);
-    if (towrite == NULL) return MEM_ERROR;
-
-    if (length > 0) 
+    if (!E.wrap)
     {
-      memmove(towrite, &line[offset], length);
+      length -= offset;
+      if (length < 0) length = 0;
+      if (length > width) length = width;
+
+      towrite = (char*)malloc(length + 1);
+      if (towrite == NULL) return MEM_ERROR;
+
+      if (length > 0) 
+      {
+        memmove(towrite, &line[offset], length);
+      }
+      towrite[length] = '\0';
     }
-    towrite[length] = '\0';
-    if (i != E.height - 1)
-      printf("%s\n", towrite);
     else
-      printf("%s", towrite);
+    {
+      towrite = (char*)malloc(length + (length / width + 1)*(blank + 1) + 100);
+      if (towrite == NULL) return MEM_ERROR;
+
+      idx = 0;
+      numrows = 0;
+      for (j = 0; j < current->length;)
+      {
+        if (idx >= width + numrows*(width + 6))
+        {
+          towrite[idx++] = '\n';
+          for (k = 0; k < blank - 3; k++)
+            towrite[idx++] = ' ';
+          towrite[idx++] = '-';
+          towrite[idx++] = '>';
+          towrite[idx++] = ' ';
+          numrows++;
+        }
+        else if (current->chars[j] == '\t')
+        {
+          do 
+          {
+            towrite[idx++] = ' ';
+            if (idx - numrows*(width + 6) > width)
+              break;
+          }
+          while (idx % E.tabwidth != 0);
+        }
+        else
+          towrite[idx++] = current->chars[j++];
+      }
+
+      towrite[idx] = '\0';
+    }
+
+    if (E.numbers) printf("%*d ", blank - 1, start + i + 1);
+    else if (E.wrap) printf("     ");
+    printf("%s\n", towrite);
+
+    free(line);
+    free(towrite);
   }
 
   return i;
+}
+
+int insert_symbols(str *line, char* s, int pos, int num)
+{
+  char *tmp = NULL;
+  int j, i;
+
+  if (pos < 0) pos = 0;
+  if (pos > line->length) pos = line->length;
+
+  tmp = malloc(line->length + num + 1);
+  if (tmp == NULL) return MEM_ERROR;
+
+  for (j = line->length + num - 1; j >= pos + num; j--)
+  {
+    tmp[j] = line->chars[j - num];
+  }
+
+  for (i = num - 1; i >= 0; i--)
+  {
+    tmp[j--] = s[i];
+  }
+
+  while (j >= 0)
+  {
+    tmp[j] = line->chars[j];
+    j--;
+  }
+
+  tmp[line->length + num] = '\0';
+  free(line->chars);
+  line->chars = tmp;
+  line->length += num;
+
+  return 0;
+}
+
+int replace_symbols(str *line, char *s, int pos, int num)
+{
+  int j;
+
+  if (line->length < pos + num - 1)
+    printf("out of bounds\n");
+    return -1;
+
+  for (j = pos + num - 2; j > pos - 2; j--)
+  {
+    line->chars[j] = s[--num];
+  }
+
+  return 0;
 }
 
 
