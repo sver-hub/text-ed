@@ -84,7 +84,7 @@ int main(int argc, char **argv)
 int init()
 {
   E.tabwidth = 4;
-  E.wrap = 1;
+  E.wrap = 0;
   E.numbers = 1;
   E.blank = 5;
   E.filename = NULL;
@@ -393,46 +393,6 @@ int replace_symbols(str *line, char *s, int pos, int num)
 /* PRINT PAGES 
   ____________
 */
-int print_pages() 
-{
-  int offset = 0;
-  int start = 0;
-  char c;
-  int printed;
-
-  print_page(start, offset);
-
-  while (1) 
-  {
-    enable_raw_mode();
-    read(STDIN_FILENO, &c, 1);
-    disable_raw_mode();
-
-    if (c == ' ')
-    {
-      start += E.height;
-      printed = print_page(start, offset);
-      if (printed == MEM_ERROR) return MEM_ERROR;
-      if (printed == 0) break;
-    }
-    else if (c == 'q')
-    {
-      break;
-    }
-    else if (c == '>' && E.wrap == 0)
-    {
-      print_page(start, ++offset);
-    }
-    else if (c == '<' && E.wrap == 0 && offset > 0)
-    {
-      print_page(start, --offset);
-    }
-    c = 0;
-  }
-
-  return 0;
-}
-
 int app_num(struct buffer *buf, int n) 
 {
   char *m;
@@ -454,118 +414,474 @@ int app_num(struct buffer *buf, int n)
   return 0;
 }
 
-int print_page(int start, int offset)
+struct pagesInfo
 {
-	int i = 0;
+  int index;
+  int offset;
+  int x;
+  int pindex;
+  int px;
+  int of;
+};
+
+int page(struct pagesInfo *I)
+{
+  int width;
+  int rlen;
+  char *rend;
+
   int j;
   int k;
   int idx;
-  int rowswr = 0;
   int numrows;
+
   struct buffer buf;
-  str *current;
-  char *line = NULL;
-  int length;
-  int width;
+    int rows = 0;
   
-
-  buf.chars = NULL;
-  buf.len = 0;
-  buf.mem = 0;
-
-  append(&buf, "\x1b[H", 3);    //move to 1,1
+    buf.chars = NULL;
+    buf.len = 0;
+    buf.mem = 0;
 
   width = (E.numbers || E.wrap) ? E.width - E.blank : E.width;
 
-	while (rowswr < E.height)
-	{
-    current = start + i < T.num ? &T.lines[start + i] : NULL;
-    if (current == NULL)
+  if (I->of)
+  {
+    I->index = I->pindex;
+    I->x = I->px;
+  }
+  
+
+  if (I->index != 0 || I->of == 1) append(&buf, "\x1b[H", 3); //move to 1,1
+  I->pindex = I->index;
+  I->px = I->x;
+  I->of = 0;
+
+  while (rows < E.height)
+  {
+    if (I->index >= T.num) 
     {
-      if (i == 0) return 0;
-      while (i++ < E.height)
+      if (rows == 0) return 0;
+      while (rows++ < E.height)
       {
-        if (E.numbers) 
-        {
-          app_num(&buf, start + i + 1);
-        }
         append(&buf, "\x1b[K\n", 4);
       }
-      return i;
+      break;
     }
 
-    if (E.numbers) app_num(&buf, start + i + 1);
-    else if (E.wrap)
+    if (I->x != 0)
     {
-      for (k = 0; k < E.blank; k++) append(&buf, " ", 1);
+      for (k = 0; k < E.blank - 3; k++) append(&buf, " ", 1);
+      append(&buf, "-> ", 3);
     }
+    else if (E.numbers) app_num(&buf, I->index + 1);
+    else if (E.wrap) for (k = 0; k < E.blank; k++) append(&buf, " ", 1);
 
-    length = line_insert_tabs(&line, *current);
-    if (length == MEM_ERROR) return MEM_ERROR;
 
     if (!E.wrap)
     {
-      length -= offset;
-      if (length < 0) length = 0;
-      if (length > width) length = width;
+      rlen = line_insert_tabs(&rend, T.lines[I->index]);
+      if (rlen == MEM_ERROR) return MEM_ERROR;
+      
+      rlen -= I->offset;
+      if (rlen < 0) rlen = 0;
+      if (rlen > width) rlen = width;
 
-      append(&buf, &line[offset], length);
-      append(&buf, "\x1b[K", 3);
+      append(&buf, &rend[I->offset], rlen);
+
+      free(rend);
     }
     else
     {
-      idx = 0;
-      numrows = 0;
-      for (j = 0; j < current->length;)
+      idx = 5;
+      numrows = 1;
+      j = 0;
+
+      if (I->x > 0)
       {
-        if (idx >= width + numrows*(width + 6))
+        j = I->x;
+        I->x = 0;
+      }
+
+      while (j < T.lines[I->index].length)
+      {
+        if (idx == numrows*(width + 6) - 1)
         {
+          rows++;
+          if (rows == E.height)
+          {
+            I->x = j - 1;
+            I->index--;
+            break;
+          }
+
           append(&buf, "\n", 1);
           for (k = 0; k < E.blank - 3; k++)
             append(&buf, " ", 1);
           append(&buf, "-> ", 3);
           idx += E.blank + 1;
           numrows++;
-          rowswr++;
+          
         }
-        else if (current->chars[j] == '\t')
+        else if (T.lines[I->index].chars[j] == '\t')
         {
           do 
           {
             append(&buf, " ", 1);
             idx++;
             if (idx - numrows*(width + 6) > width)
+            {
+              j++;
               break;
-          }
-          while (idx % E.tabwidth != 0);
+            }
+          } while (idx % E.tabwidth != 0);
+          j++;
         }
         else
-          append(&buf, &current->chars[j++], 1);
-          append(&buf, "\x1b[K", 3);
+        {
+          append(&buf, &T.lines[I->index].chars[j++], 1);
           idx++;
+        } 
       }
     }
 
-    // append(&buf, "\0", 1);
-
-    // if (E.numbers) printf("%*d ", E.blank - 1, start + i + 1);
-    // else if (E.wrap) printf("     ");
-    // printf("%s\n", buf.chars);
-    append(&buf, "\n", 1);
-    rowswr++;
-    i++;
-
-    free(line);
+    append(&buf, "\x1b[K\n", 4);
+    I->index++;
+    rows++;
   }
-  write(STDOUT_FILENO, buf.chars, buf.len);
-  
-  free(buf.chars);
-  buf.chars = NULL;
-  buf.len = 0;
-  buf.mem = 0;
 
-  return i;
+  write(STDIN_FILENO, buf.chars, buf.len);
+  free(buf.chars);
+  return 1;
 }
+
+
+int print_pages() 
+{
+  char c;
+  int printed;
+  int j;
+
+  struct pagesInfo I;
+
+  I.index = 0;
+  I.offset = 0;
+  I.x = 0;
+  I.pindex = 0;
+  I.px = 0;
+  I.of = 0;
+
+  page(&I);
+
+  while (1) 
+  {
+    enable_raw_mode();
+    read(STDIN_FILENO, &c, 1);
+    disable_raw_mode();
+
+    if (c == ' ')
+    {
+      printed = page(&I);
+      if (printed == MEM_ERROR) return MEM_ERROR;
+      if (printed == 0) 
+      {
+        write(STDOUT_FILENO, "\x1b[H", 3);
+        for (j = 0; j < E.height; j++)
+          write(STDOUT_FILENO, "\x1b[K\n", 4);
+        write(STDOUT_FILENO, "\x1b[H", 3);
+        break;
+      }
+    }
+    else if (c == 'q')
+    {
+      write(STDOUT_FILENO, "\x1b[H", 3);
+      for (j = 0; j < E.height; j++)
+        write(STDOUT_FILENO, "\x1b[K\n", 4);
+      write(STDOUT_FILENO, "\x1b[H", 3);
+      break;
+    }
+    else if (c == '>' && E.wrap == 0)
+    {
+      I.offset++;
+      I.of = 1;
+      page(&I);
+    }
+    else if (c == '<' && E.wrap == 0 && I.offset > 0)
+    {
+      I.offset--;
+      I.of = 1;
+      page(&I);
+    }
+    c = 0;
+  }
+
+  return 0;
+}
+
+
+// int next_line(struct buffer *buf, int index, int offset)
+// {
+//   int width;
+//   int rlen;
+//   char *rend;
+
+//   int j;
+//   int k;
+//   int idx = 0;
+//   int numrows = 0;
+
+
+//   width = (E.numbers || E.wrap) ? E.width - E.blank : E.width;
+
+//   if (index >= T.num) return 0;
+
+//   if (E.numbers) app_num(buf, index + 1);
+//   else if (E.wrap)
+//   {
+//     for (k = 0; k < E.blank; k++) append(buf, " ", 1);
+//   }
+
+
+//   if (!E.wrap)
+//   {
+//     rlen = line_insert_tabs(&rend, T.lines[index]);
+//     if (rlen == MEM_ERROR) return MEM_ERROR;
+    
+//     rlen -= offset;
+//     if (rlen < 0) rlen = 0;
+//     if (rlen > width) rlen = width;
+
+//     append(buf, &rend[offset], rlen);
+//     append(buf, "\x1b[K", 3);
+
+//     free(rend);
+//   }
+//   else
+//   {
+//     for (j = 0; j < T.lines[index].length;)
+//     {
+//       if (idx >= width + numrows*(width + 6))
+//       {
+//         append(buf, "\n", 1);
+//         for (k = 0; k < E.blank - 3; k++)
+//           append(buf, " ", 1);
+//         append(buf, "-> ", 3);
+//         idx += E.blank + 1;
+//         numrows++;
+//       }
+//       else if (T.lines[index].chars[j] == '\t')
+//       {
+//         do 
+//         {
+//           append(buf, " ", 1);
+//           idx++;
+//           if (idx - numrows*(width + 6) > width)
+//             break;
+//         }
+//         while (idx % E.tabwidth != 0);
+//       }
+//       else
+//       {
+//         append(buf, &T.lines[index].chars[j++], 1);
+//         idx++;
+//       }
+//       append(buf, "\x1b[K", 3);
+//     }
+//   }
+
+//   return numrows + 1;
+// }
+
+// int print_page(int start, int offset) 
+// {
+//   struct buffer buf;
+//   int rows = 0;
+//   int i = start;
+//   int added;
+
+//   buf.chars = NULL;
+//   buf.len = 0;
+//   buf.mem = 0;
+
+//   append(&buf, "\x1b[H", 3); //move to 1,1
+
+//   while (rows < E.height)
+//   {
+//     added = next_line(&buf, i++, offset);
+//     if (added == MEM_ERROR) return MEM_ERROR;
+//     if (added == 0) 
+//     {
+//       while (rows++ < E.height)
+//       {
+//         append(&buf, "\x1b[K\n", 4);
+//       }
+//       break;
+//     }
+
+//     rows += added;
+//     append(&buf, "\n", 1);
+//   }
+
+//   write(STDOUT_FILENO, buf.chars, buf.len);
+  
+//   free(buf.chars);
+
+//   return added;
+// }
+
+// int print_pages() 
+// {
+//   int offset = 0;
+//   int start = 0;
+//   char c;
+//   int printed;
+
+//   print_page(start, offset);
+
+//   while (1) 
+//   {
+//     enable_raw_mode();
+//     read(STDIN_FILENO, &c, 1);
+//     disable_raw_mode();
+
+//     if (c == ' ')
+//     {
+//       start += E.height;
+//       printed = print_page(start, offset);
+//       if (printed == MEM_ERROR) return MEM_ERROR;
+//       if (printed == 0) break;
+//     }
+//     else if (c == 'q')
+//     {
+//       break;
+//     }
+//     else if (c == '>' && E.wrap == 0)
+//     {
+//       print_page(start, ++offset);
+//     }
+//     else if (c == '<' && E.wrap == 0 && offset > 0)
+//     {
+//       print_page(start, --offset);
+//     }
+//     c = 0;
+//   }
+
+//   return 0;
+// }
+
+
+
+// int print_page(struct buffer *buf, int index, int offset)
+// {
+// 	int i = 0;
+//   int j;
+//   int k;
+//   int idx;
+//   int rowswr = 0;
+//   int numrows;
+//   //struct buffer buf;
+//   str *current;
+//   char *line = NULL;
+//   int length;
+//   int width;
+  
+
+//   // buf.chars = NULL;
+//   // buf.len = 0;
+//   // buf.mem = 0;
+
+//   //append(&buf, "\x1b[H", 3);    //move to 1,1
+
+//   width = (E.numbers || E.wrap) ? E.width - E.blank : E.width;
+
+// 	while (rowswr < E.height)
+// 	{
+//     current = start + i < T.num ? &T.lines[start + i] : NULL;
+//     if (current == NULL)
+//     {
+//       if (i == 0) return 0;
+//       while (i++ < E.height)
+//       {
+//         if (E.numbers) 
+//         {
+//           app_num(&buf, start + i + 1);
+//         }
+//         append(&buf, "\x1b[K\n", 4);
+//       }
+//       return i;
+//     }
+
+//     if (E.numbers) app_num(&buf, start + i + 1);
+//     else if (E.wrap)
+//     {
+//       for (k = 0; k < E.blank; k++) append(&buf, " ", 1);
+//     }
+
+//     length = line_insert_tabs(&line, *current);
+//     if (length == MEM_ERROR) return MEM_ERROR;
+
+//     if (!E.wrap)
+//     {
+//       length -= offset;
+//       if (length < 0) length = 0;
+//       if (length > width) length = width;
+
+//       append(&buf, &line[offset], length);
+//       append(&buf, "\x1b[K", 3);
+//     }
+//     else
+//     {
+//       idx = 0;
+//       numrows = 0;
+//       for (j = 0; j < current->length;)
+//       {
+//         if (idx >= width + numrows*(width + 6))
+//         {
+//           append(&buf, "\n", 1);
+//           for (k = 0; k < E.blank - 3; k++)
+//             append(&buf, " ", 1);
+//           append(&buf, "-> ", 3);
+//           idx += E.blank + 1;
+//           numrows++;
+//           rowswr++;
+//         }
+//         else if (current->chars[j] == '\t')
+//         {
+//           do 
+//           {
+//             append(&buf, " ", 1);
+//             idx++;
+//             if (idx - numrows*(width + 6) > width)
+//               break;
+//           }
+//           while (idx % E.tabwidth != 0);
+//         }
+//         else
+//           append(&buf, &current->chars[j++], 1);
+//           append(&buf, "\x1b[K", 3);
+//           idx++;
+//       }
+//     }
+
+//     // append(&buf, "\0", 1);
+
+//     // if (E.numbers) printf("%*d ", E.blank - 1, start + i + 1);
+//     // else if (E.wrap) printf("     ");
+//     // printf("%s\n", buf.chars);
+//     append(&buf, "\n", 1);
+//     rowswr++;
+//     i++;
+
+//     free(line);
+//   }
+//   write(STDOUT_FILENO, buf.chars, buf.len);
+  
+//   free(buf.chars);
+//   buf.chars = NULL;
+//   buf.len = 0;
+//   buf.mem = 0;
+
+//   return i;
+// }
 
 
 
