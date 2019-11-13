@@ -24,7 +24,7 @@ typedef struct str
 	int length;
 } str;
 
-struct text
+struct arraystr
 {
 	str *lines;
 	int num;
@@ -46,24 +46,28 @@ struct config
 };
 
 struct config E;
-struct text T;
+struct arraystr T;
 
 /* functions */
 int init();
+
 int init_modes();
 int enable_raw_mode();
 void disable_raw_mode();
-int get_cursor_position(int *rows, int *cols);
 int get_window_size(int *rows, int *cols);
-ssize_t get_line(FILE *f, char **line, int *eofflag);
-ssize_t read_file(FILE *f, str **lines);
+
 void from_file(char *filename);
+
 void set_wrap(int k);
 void set_numbers(int k);
 void set_tabwidth(int k);
-int print_pages();
+
+int print();
+
 int insert_symbols(str *line, char* s, int pos, int num);
 int replace_symbols(str *line, char *s, int pos, int num);
+
+int split(struct arraystr *ar, str s);
 
 
 
@@ -74,7 +78,7 @@ int main(int argc, char **argv)
   {
     from_file(argv[1]);
   }
-  print_pages(14, T.num);
+  
 }
 
 
@@ -307,36 +311,6 @@ int append(struct buffer *buf, const char* s, int len)
   return 0;
 }
 
-ssize_t line_insert_tabs(char** line, str current)
-{
-  int tabs = 0;
-  size_t idx = 0;
-  int j;
-  char *l;
-
-  for (j = 0; j < current.length; j++)
-    if (current.chars[j] == '\t') tabs++;
-
-  l = malloc(current.length + tabs*(E.tabwidth - 1) + 1);
-  if (l == NULL) return MEM_ERROR;
-
-  for (j = 0; j < current.length; j++)
-  {
-    if (current.chars[j] == '\t')
-    {
-      l[idx++] = ' ';
-      while (idx % E.tabwidth != 0) l[idx++] = ' ';
-    }
-    else
-    {
-      l[idx++] = current.chars[j];
-    }
-  }
-
-  *line = l;
-  return idx;
-}
-
 int insert_symbols(str *line, char* s, int pos, int num)
 {
   char *tmp = NULL;
@@ -388,7 +362,7 @@ int replace_symbols(str *line, char *s, int pos, int num)
   return 0;
 }
 
-/* PRINT PAGES 
+/* PRINT 
   ____________
 */
 int app_num(struct buffer *buf, int n) 
@@ -410,6 +384,36 @@ int app_num(struct buffer *buf, int n)
   append(buf, " ", 1);
 
   return 0;
+}
+
+ssize_t line_insert_tabs(char** line, str current)
+{
+  int tabs = 0;
+  size_t idx = 0;
+  int j;
+  char *l;
+
+  for (j = 0; j < current.length; j++)
+    if (current.chars[j] == '\t') tabs++;
+
+  l = malloc(current.length + tabs*(E.tabwidth - 1) + 1);
+  if (l == NULL) return MEM_ERROR;
+
+  for (j = 0; j < current.length; j++)
+  {
+    if (current.chars[j] == '\t')
+    {
+      l[idx++] = ' ';
+      while (idx % E.tabwidth != 0) l[idx++] = ' ';
+    }
+    else
+    {
+      l[idx++] = current.chars[j];
+    }
+  }
+
+  *line = l;
+  return idx;
 }
 
 struct pagesInfo
@@ -554,7 +558,7 @@ int page(struct pagesInfo *I)
 }
 
 
-int print_pages(int start, int end) 
+int print(int start, int end) 
 {
   char c;
   int printed;
@@ -624,3 +628,53 @@ int print_pages(int start, int end)
   return 0;
 }
 
+
+/* 
+
+ */
+int split(struct arraystr *ret, str s)
+{
+  struct arraystr ar;
+  str token;
+  int k = 0;
+  int j;
+  char c;
+
+  ar.lines = NULL;
+  ar.num = 0;
+
+  for (j = 0; j <= s.length; j++)
+  {
+    if (j < s.length) c = s.chars[j];
+
+    if (k != 0 && (j == s.length || c == ' ' || c == '\t'))
+    {
+      token.length = k;
+      token.chars = (char*)realloc((char*)token.chars, k + 1);
+      if (token.chars == NULL) return MEM_ERROR;
+      token.chars[k] = '\0';
+
+      ar.num++;
+      ar.lines = (str*)realloc((str*)ar.lines, ar.num*sizeof(str));
+      ar.lines[ar.num - 1] = token;
+
+      k = 0;
+
+      while (j < s.length && (s.chars[j + 1] == ' ' || s.chars[j + 1] == '\t')) j++;
+    }
+    else
+    {
+      if (k == 0)
+      {
+        token.chars = (char*)malloc(s.length);
+        if (token.chars == NULL) return MEM_ERROR;
+      }
+
+      token.chars[k++] = s.chars[j];
+    }
+  }
+
+  *ret = ar;
+  return 0;
+
+}
