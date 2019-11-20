@@ -30,6 +30,24 @@ struct arraystr
 	int num;
 };
 
+void freear(struct arraystr *ar)
+{
+  if (ar->lines == NULL) 
+  {
+    ar->num = 0;
+    return;
+  }
+
+  int j;
+  for (j = 0; j < ar->num; j++)
+  {
+    free(ar->lines[j].chars);
+  }
+  free(ar->lines);
+  ar->lines = NULL;
+  ar->num = 0;
+}
+
 
 
 struct config
@@ -41,12 +59,14 @@ struct config
 	int numbers;
 	int tabwidth;
   int blank;
+  int printing;
   struct termios orig_termios;
   struct termios raw;
 };
 
 struct config E;
 struct arraystr T;
+struct pagesInfo I;
 
 /* functions */
 int init();
@@ -54,9 +74,12 @@ int init();
 int init_modes();
 int enable_raw_mode();
 void disable_raw_mode();
-int get_window_size(int *rows, int *cols);
+int get_window_size();
+void sighandler(int sig);
 
-void from_file(char *filename);
+void set_name(char *filename);
+int e_read(char *filename);
+int e_open(char *filename);
 
 void set_wrap(int k);
 void set_numbers(int k);
@@ -68,7 +91,12 @@ int insert_symbols(str *line, char* s, int pos, int num);
 int replace_symbols(str *line, char *s, int pos, int num);
 
 int split(struct arraystr *ar, str s);
+int read_command(struct arraystr *ar);
 
+void err_com()
+{
+  printf("invalid command\n");
+}
 
 
 int main(int argc, char **argv)
@@ -76,10 +104,140 @@ int main(int argc, char **argv)
   init();
 	if (argc >= 2)
   {
-    from_file(argv[1]);
+    e_read(argv[1]);
   }
+
+  struct arraystr ar;
+  ar.lines = NULL;
+  ar.num = 0;
+
+  while (1)
+  {
+    freear(&ar);
+    printf("editor: ");
+    read_command(&ar); 
+
+    if (ar.num < 1)
+      err_com();
+
+    /* Setters */
+    else if (!strcmp(ar.lines[0].chars, "set"))
+    {
+      if (ar.num != 3)
+      {
+        err_com();
+        continue;
+      }
+      if (!strcmp(ar.lines[1].chars, "wrap"))
+      {
+        if (!strcmp(ar.lines[2].chars, "yes"))
+          E.wrap = 1;
+        else if (!strcmp(ar.lines[2].chars, "no"))
+          E.wrap = 0;
+        else 
+          err_com();
+      }
+      else if (!strcmp(ar.lines[1].chars, "numbers"))
+      {
+        if (!strcmp(ar.lines[2].chars, "yes"))
+          E.numbers = 1;
+        else if (!strcmp(ar.lines[2].chars, "no"))
+          E.numbers = 0;
+        else 
+          err_com();
+      }
+      else if (!strcmp(ar.lines[1].chars, "tabwidth"))
+      {
+        if (atoi(ar.lines[2].chars) == 0)
+          err_com();
+        else
+          E.tabwidth = atoi(ar.lines[2].chars);
+      }
+      else if (!strcmp(ar.lines[1].chars, "name"))
+      {
+        if (ar.num > 3)
+          err_com();
+        else if (ar.lines[2].length == 0)
+        {
+          free(E.filename);
+          E.filename = NULL;
+        }
+        else
+          set_name(ar.lines[2].chars);
+      }
+      else
+        err_com();
+    }
+
+    /* Print */
+    else if (!strcmp(ar.lines[0].chars, "print"))
+    {
+      if (ar.num == 1)
+        err_com();
+      else if (!strcmp(ar.lines[1].chars, "pages"))
+      {
+        if (ar.num > 2)
+          err_com();
+        else
+          print(1, T.num);
+      }
+      else if (!strcmp(ar.lines[1].chars, "range"))
+      {
+        if (ar.num == 2)
+          print(1, T.num);
+        else if (ar.num == 3)
+        {
+          if (atoi(ar.lines[2].chars) == 0) 
+            err_com();
+          else 
+            print(atoi(ar.lines[2].chars), T.num);
+        }
+        else if (ar.num == 4)
+        {
+          if (atoi(ar.lines[2].chars) == 0 || atoi(ar.lines[3].chars) == 0)
+            err_com();
+          else
+            print(atoi(ar.lines[2].chars), atoi(ar.lines[3].chars));
+        }
+        else
+          err_com();
+      }
+      else
+      {
+        err_com();
+      }
+    }
+
+    /* File interactions */
+    else if (!strcmp(ar.lines[0].chars, "read"))
+    {
+      if (ar.num != 2)
+        err_com();
+      else
+        e_read(ar.lines[1].chars);
+    }
+    else if (!strcmp(ar.lines[0].chars, "open"))
+    {
+      if (ar.num != 2)
+        err_com();
+      else
+        e_open(ar.lines[1].chars);
+    }
+    else if (!strcmp(ar.lines[0].chars, "write"))
+    {
+
+    }
+
+
+    else if (!strcmp(ar.lines[0].chars, "exit"))
+    {
+      exit(0);
+    }
+
   
-}
+  } //while
+  
+} //main
 
 
 
@@ -90,9 +248,10 @@ int init()
   E.numbers = 1;
   E.blank = 5;
   E.filename = NULL;
-  get_window_size(&E.height, &E.width);
-  E.height -= 1;
+  E.printing = 0;
+  get_window_size();
   init_modes();
+  signal(SIGWINCH, sighandler);
 
   return 0;
 }
@@ -131,39 +290,19 @@ void disable_raw_mode()
     printf("failed to disable raw mode\n");
 }
 
-int get_cursor_position(int *rows, int *cols)
-{
-  char buf[32];
-  unsigned int i = 0;
-  if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
-  while (i < sizeof(buf) - 1) {
-    if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
-    if (buf[i] == 'R') break;
-    i++;
-  }
-  buf[i] = '\0';
-  if (buf[0] != '\x1b' || buf[1] != '[') return -1;
-  if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
-  return 0;
-}
-
-int get_window_size(int *rows, int *cols)
+int get_window_size()
 {
   struct winsize ws;
 
-  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
-  {
-    if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) 
-      return -1;
-    return get_cursor_position(rows, cols);
-  }
-  else 
-  {
-    *cols = ws.ws_col;
-    *rows = ws.ws_row;
-    return 0;
-  }
+  ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+  
+  E.width = ws.ws_col;
+  E.height = ws.ws_row - 1;
+
+  return 0;
+  
 }
+
 
 /* GETTING LINES FROM FILE
   _______________________
@@ -245,21 +384,36 @@ ssize_t read_file(FILE *f, str **lines)
     return size;
 }
 
-void from_file(char *filename)
+void set_name(char *filename)
 {
   free(E.filename);
   E.filename = strdup(filename);
+}
 
+int e_read(char *filename)
+{
   FILE *fp = fopen(filename, "r");
   if (fp == NULL) 
   {
   	printf("failed to open file\n");
-  	return;
+  	return -1;
   }
 
   T.num = read_file(fp, &T.lines);
 
   fclose(fp);
+
+  return 0;
+}
+
+int e_open(char *filename)
+{
+  if (!e_read(filename))
+    set_name(filename);
+  else return -1;
+
+  return 0;
+
 }
 
 /* SETTINGS 
@@ -439,11 +593,11 @@ int page(struct pagesInfo *I)
   int numrows;
 
   struct buffer buf;
-    int rows = 0;
+  int rows = 0;
   
-    buf.chars = NULL;
-    buf.len = 0;
-    buf.mem = 0;
+  buf.chars = NULL;
+  buf.len = 0;
+  buf.mem = 0;
 
   width = (E.numbers || E.wrap) ? E.width - E.blank : E.width;
   I->max = 0;
@@ -564,7 +718,7 @@ int print(int start, int end)
   int printed;
   int j;
 
-  struct pagesInfo I;
+  
 
   I.index = start - 1;
   I.offset = 0;
@@ -575,6 +729,8 @@ int print(int start, int end)
   I.max = 0;
 
   page(&I);
+
+  E.printing = 1;
 
   while (1) 
   {
@@ -625,7 +781,18 @@ int print(int start, int end)
     c = 0;
   }
 
+  E.printing = 0;
   return 0;
+}
+
+void sighandler(int sig)
+{
+  get_window_size();
+  if (!E.printing)
+  {
+    I.of = 1;
+    
+  }
 }
 
 
@@ -678,3 +845,115 @@ int split(struct arraystr *ret, str s)
   return 0;
 
 }
+
+int add_token(struct arraystr *ar, struct buffer *buf)
+{
+  str* tmp = NULL;
+
+  append(buf, "\0", 1);
+
+  ar->num++;
+  tmp = (str*)realloc(ar->lines, (ar->num)* sizeof(str));
+  if (tmp == NULL) return MEM_ERROR;
+
+  tmp[ar->num - 1].chars = buf->chars;
+  tmp[ar->num - 1].length = buf->len - 1;
+
+  ar->lines = tmp;
+
+  buf->chars = NULL;
+  buf->len = 0;
+  buf->mem = 0;
+
+  return 0;
+}
+
+int read_command(struct arraystr *ar)
+{
+  struct buffer buf;
+  buf.chars = NULL;
+  buf.len = 0;
+  buf.mem = 0;
+
+  char c;
+  int par = 0;
+  int parn = 0;
+  int trpar = 0;
+
+  while (1)
+  {
+    c = fgetc(stdin);
+
+    if (c == '\n')
+    {
+      if (!par)
+      {
+        if (buf.len > 0) add_token(ar, &buf);
+        break;
+      }
+      else if (par && !trpar)
+      {
+        freear(ar);
+        printf("wrong input: parenthases\n");
+        return 1;
+      }
+      else if (trpar)
+      {
+        append(&buf, "\n", 1);
+      }
+    }
+    else if (c == '\\')
+    {
+      c = fgetc(stdin);
+      if (c == 'n')
+      {
+        append(&buf, "\n" , 1);
+      }
+      else if (c == 't')
+      {
+        append(&buf, "\t", 1);
+      }
+      else if (c == 'r')
+      {
+        append(&buf, "\r", 1);
+      }
+      else if (c == '\\') 
+      {
+        append(&buf, "\\" , 1);
+      }
+      else
+      {
+        append(&buf, &c, 1);
+      }
+
+      parn = 0;
+    }
+    else if (!par && (c == ' ' || c == '\t'))
+    { 
+      if (buf.len > 0) add_token(ar, &buf);
+    }
+    else if (c == '\"') 
+    {
+      par = par == 0 ? 1 : 0;
+      parn++;
+      if (parn == 3)
+      {
+        trpar = trpar == 0 ? 1 : 0;
+        parn = 0;
+      }
+    }
+    else if (!par && c == '#')
+    {
+      add_token(ar, &buf);
+      break;
+    }
+    else
+    {
+      append(&buf, &c, 1);
+      parn = 0;
+    }
+  }
+
+  return 0;
+}
+
