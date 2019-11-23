@@ -18,6 +18,33 @@ struct buffer
   int mem;
 };
 
+int append(struct buffer *buf, const char* s, int len)
+{
+  char *tmp = NULL;
+  int j;
+  int memadd;
+
+  if (buf->len + len > buf->mem)
+  {
+    memadd = BUFFADD > len ? BUFFADD : len;
+
+    tmp = (char*)realloc(buf->chars, buf->mem + memadd);
+    if (tmp == NULL) return MEM_ERROR;
+
+    buf->chars = tmp;
+    buf->mem += memadd;
+  }
+
+  for (j = 0; j < len; j++)
+  {
+    buf->chars[j + buf->len] = s[j];
+  }
+
+  buf->len += len;
+
+  return 0;
+}
+
 typedef struct str
 {
 	char *chars;
@@ -44,6 +71,7 @@ void freear(struct arraystr *ar)
     free(ar->lines[j].chars);
   }
   free(ar->lines);
+  
   ar->lines = NULL;
   ar->num = 0;
 }
@@ -60,6 +88,7 @@ struct config
 	int tabwidth;
   int blank;
   int printing;
+  int saved;
   struct termios orig_termios;
   struct termios raw;
 };
@@ -80,6 +109,7 @@ void sighandler(int sig);
 void set_name(char *filename);
 int e_read(char *filename);
 int e_open(char *filename);
+int e_write(char *filename);
 
 void set_wrap(int k);
 void set_numbers(int k);
@@ -87,8 +117,10 @@ void set_tabwidth(int k);
 
 int print();
 
-int insert_symbols(str *line, char* s, int pos, int num);
-int replace_symbols(str *line, char *s, int pos, int num);
+int e_insert_after(str toin, int pos);
+int e_insert_symbol(str *line, char c, int pos);
+int e_edit(str *line, char c, int pos);
+int e_delr(int start, int end);
 
 int split(struct arraystr *ar, str s);
 int read_command(struct arraystr *ar);
@@ -104,7 +136,7 @@ int main(int argc, char **argv)
   init();
 	if (argc >= 2)
   {
-    e_read(argv[1]);
+    e_open(argv[1]);
   }
 
   struct arraystr ar;
@@ -187,14 +219,14 @@ int main(int argc, char **argv)
           print(1, T.num);
         else if (ar.num == 3)
         {
-          if (atoi(ar.lines[2].chars) == 0) 
+          if (!atoi(ar.lines[2].chars)) 
             err_com();
           else 
             print(atoi(ar.lines[2].chars), T.num);
         }
         else if (ar.num == 4)
         {
-          if (atoi(ar.lines[2].chars) == 0 || atoi(ar.lines[3].chars) == 0)
+          if (!atoi(ar.lines[2].chars) || !atoi(ar.lines[3].chars))
             err_com();
           else
             print(atoi(ar.lines[2].chars), atoi(ar.lines[3].chars));
@@ -225,15 +257,98 @@ int main(int argc, char **argv)
     }
     else if (!strcmp(ar.lines[0].chars, "write"))
     {
+      if (ar.num == 1)
+        e_write(NULL);
+      else if (ar.num == 2)
+        e_write(ar.lines[1].chars);
+      else
+        err_com();
+    }
 
+    /*  */
+    else if (!strcmp(ar.lines[0].chars, "edit"))
+    {
+      if (ar.num != 5 || strcmp(ar.lines[1].chars, "string") || 
+              !atoi(ar.lines[2].chars) || !atoi(ar.lines[3].chars) || ar.lines[4].length != 1)
+        err_com();
+      else e_edit(&T.lines[atoi(ar.lines[2].chars) - 1], *ar.lines[4].chars, atoi(ar.lines[3].chars));
+    }
+    else if (!strcmp(ar.lines[0].chars, "insert"))
+    {
+      if (ar.num == 5 && !strcmp(ar.lines[1].chars, "symbol"))
+      {
+        if (!atoi(ar.lines[2].chars) || !atoi(ar.lines[3].chars) || ar.lines[4].length != 1)
+          err_com();
+        else 
+          e_insert_symbol(&T.lines[atoi(ar.lines[2].chars) - 1], *ar.lines[4].chars, atoi(ar.lines[3].chars));
+      }
+      else if (!strcmp(ar.lines[1].chars, "after"))
+      {
+        if (ar.num == 3)
+          e_insert_after(ar.lines[2], T.num);
+        else if (ar.num == 4)
+        {
+          if (atoi(ar.lines[2].chars))
+          {
+            printf("%d\n", atoi(ar.lines[2].chars));
+            if (atoi(ar.lines[2].chars) < 0 || atoi(ar.lines[2].chars) > T.num)
+              printf("out of bounds\n");
+            else
+              e_insert_after(ar.lines[3], atoi(ar.lines[2].chars));
+          }
+          else if (ar.lines[2].length == 1 && ar.lines[2].chars[0] == '0')
+            e_insert_after(ar.lines[3], 0);
+          else err_com();
+        }
+        else err_com();
+      }
+      else
+        err_com();
+    }
+    else if (!strcmp(ar.lines[0].chars, "delete"))
+    {
+      if (ar.num > 2 && !strcmp(ar.lines[1].chars, "range") && atoi(ar.lines[2].chars))
+        if (ar.num == 3)
+          e_delr(atoi(ar.lines[2].chars), T.num);
+        else if (ar.num == 4)
+          if(!atoi(ar.lines[3].chars))
+            err_com();
+          else
+            e_delr(atoi(ar.lines[2].chars), atoi(ar.lines[3].chars));
+        else
+          err_com();
+      else
+        err_com();
     }
 
 
     else if (!strcmp(ar.lines[0].chars, "exit"))
     {
-      exit(0);
+      if (ar.num == 2 && !strcmp(ar.lines[1].chars, "force"))
+      {
+        freear(&ar);
+        freear(&T);
+        exit(0);
+      }
+      else if (ar.num == 1)
+      {
+        if (E.saved)
+        {
+          freear(&ar);
+          freear(&T);
+          exit(0);
+        }
+        else 
+          printf("progress wasn`t saved, unable to exit\n");
+      }
+      else
+        err_com();
     }
 
+    else
+      err_com();
+
+    freear(&ar);
   
   } //while
   
@@ -249,6 +364,7 @@ int init()
   E.blank = 5;
   E.filename = NULL;
   E.printing = 0;
+  E.saved = 1;
   get_window_size();
   init_modes();
   signal(SIGWINCH, sighandler);
@@ -304,7 +420,7 @@ int get_window_size()
 }
 
 
-/* GETTING LINES FROM FILE
+/* FILE I/O
   _______________________
 */
 ssize_t get_line(FILE *f, char **line, int *eofflag)
@@ -413,8 +529,55 @@ int e_open(char *filename)
   else return -1;
 
   return 0;
-
 }
+
+int e_write(char *filename)
+{
+  if (filename == NULL)
+  {
+    if (E.filename == NULL)
+    {
+      printf("file name is not associated\n");
+      return 1;
+    }
+    else
+      filename = E.filename;
+  }
+  else if (E.filename == NULL)
+    set_name(filename);
+
+  FILE *f = fopen(filename, "w");
+  if (f == NULL)
+  {
+    printf("failed to open file\n");
+    return 1;
+  }
+
+  struct buffer buf;
+  int j;
+  buf.chars = 0;
+  buf.len = 0;
+  buf.mem = 0;
+
+  for (j = 0; j < T.num; j++)
+  {
+    append(&buf, T.lines[j].chars, T.lines[j].length);
+    if (j != T.num - 1) append(&buf, "\n", 1);
+  }
+
+  if ((int)fwrite(buf.chars, sizeof(char), buf.len, f) != buf.len)
+  {
+    printf("failed to write\n");
+    return 1;
+  }
+
+  free(buf.chars);
+
+  E.saved = 1;
+  return 0;
+}
+
+
 
 /* SETTINGS 
   _________
@@ -438,53 +601,128 @@ void set_tabwidth(int k)
 /* STRING OPERATIONS
   __________________
 */
-int append(struct buffer *buf, const char* s, int len)
+
+int idxsubstr(str line, str tofind)
 {
-  char *tmp = NULL;
+  int i;
   int j;
-  int memadd;
+  int found;
 
-  if (buf->len + len > buf->mem)
+  for (i = 0; i <= line.length - tofind.length; i++)
   {
-    memadd = BUFFADD > len ? BUFFADD : len;
-
-    tmp = (char*)realloc(buf->chars, buf->mem + memadd);
-    if (tmp == NULL) return MEM_ERROR;
-
-    buf->chars = tmp;
-    buf->mem += memadd;
+    if (line.chars[i] == tofind.chars[0])
+    {
+      found = 1;
+      for (j = 1; j < tofind.length; j++)
+      {
+        if (tofind.chars[j] != line.chars[i + j])
+        {
+          found = 0;
+          break;
+        }
+      }
+      if (found)
+        return i;
+    }
   }
 
-  for (j = 0; j < len; j++)
+  return -1;
+}
+
+int e_insert_after(str toin, int pos)
+{
+  int j;
+  int i;
+  int k = 0;
+  int idx = 0;
+  int strtoadd = 1;
+  str* newlines = NULL;
+  char *tmp = NULL;
+
+  for (j = 0; j < toin.length; j++)
+    if (toin.chars[j] == '\n')
+      strtoadd++;
+
+  newlines = malloc((T.num + strtoadd)*sizeof(str));
+  if (newlines == NULL) return MEM_ERROR;
+
+  for (j = 0; j < pos; j++)
   {
-    buf->chars[j + buf->len] = s[j];
+    newlines[idx++] = T.lines[j];
   }
 
-  buf->len += len;
+  tmp = malloc(toin.length);
+  if (tmp == NULL) return MEM_ERROR;
 
+  for (i = 0; i <= toin.length; i++)
+  {
+    if (toin.chars[i] == '\n' || i == toin.length)
+    {
+      tmp[k] = '\0';
+      tmp = realloc(tmp, k + 1);
+      if (tmp == NULL) return MEM_ERROR;
+
+      newlines[idx].chars = tmp;
+      newlines[idx++].length = k;
+
+      k = 0;
+      tmp = malloc(toin.length);
+      if (tmp == NULL) return MEM_ERROR;
+    }
+    else
+      tmp[k++] = toin.chars[i];
+  }
+
+  for(; j < T.num; j++)
+  {
+    newlines[idx++] = T.lines[j];
+  }
+
+  free(T.lines);
+  T.lines = newlines;
+  T.num += strtoadd;
+
+  E.saved = 0;
   return 0;
 }
 
-int insert_symbols(str *line, char* s, int pos, int num)
+int e_replace_substr(int start, int end, str tofind, str toreplace)
+{
+  int j;
+
+
+  if (start < 1 || start > T.num || end < 1 || end > T.num)
+  {
+    printf("out of bounds\n");
+    return -1;
+  }
+
+  for (j = start - 1; j < end; j++)
+  {
+    if (idxsubstr(T.lines[j], tofind) != -1)
+    {
+      
+    }
+  }
+}
+
+int e_insert_symbol(str *line, char c, int pos)
 {
   char *tmp = NULL;
-  int j, i;
+  int j;
 
   if (pos < 0) pos = 0;
   if (pos > line->length) pos = line->length;
 
-  tmp = malloc(line->length + num + 1);
+  tmp = malloc(line->length + 2);
   if (tmp == NULL) return MEM_ERROR;
 
-  for (j = line->length + num - 1; j >= pos + num; j--)
+  for (j = line->length; j >= pos; j--)
   {
-    tmp[j] = line->chars[j - num];
+    tmp[j] = line->chars[j - 1];
   }
 
-  for (i = num - 1; i >= 0; i--)
-  {
-    tmp[j--] = s[i];
-  }
+  tmp[j--] = c;
 
   while (j >= 0)
   {
@@ -492,27 +730,61 @@ int insert_symbols(str *line, char* s, int pos, int num)
     j--;
   }
 
-  tmp[line->length + num] = '\0';
+  tmp[line->length + 1] = '\0';
   free(line->chars);
   line->chars = tmp;
-  line->length += num;
+  line->length += 1;
+
+  E.saved = 0;
 
   return 0;
 }
 
-int replace_symbols(str *line, char *s, int pos, int num)
+int e_edit(str *line, char c, int pos)
 {
-  int j;
 
-  if (line->length < pos + num - 1)
+  if (line->length < pos - 1 || pos < 1)
+  {
     printf("out of bounds\n");
     return -1;
-
-  for (j = pos + num - 2; j > pos - 2; j--)
-  {
-    line->chars[j] = s[--num];
   }
 
+  line->chars[pos - 1] = c;
+
+  E.saved = 0;
+
+  return 0;
+}
+
+int e_delr(int start, int end)
+{ 
+  int j;
+  int idx = 0;
+  int len;
+  str *tmp = NULL;
+
+  start = start < 1 ? 0 : start - 1;
+  end = end > T.num ? T.num : end;
+
+  len = (T.num - (end - start));
+
+  tmp = (str*)malloc(len*sizeof(str));
+  if (tmp == NULL) return MEM_ERROR;
+
+  for (j = 0; j < T.num; j++)
+  {
+    while (j >= start && j < end)
+    {
+      free(T.lines[j++].chars);
+    }
+    tmp[idx++] = T.lines[j];
+  }
+
+  free(T.lines);
+  T.lines = tmp;
+  T.num = len;
+
+  E.saved = 0;
   return 0;
 }
 
@@ -718,14 +990,12 @@ int print(int start, int end)
   int printed;
   int j;
 
-  
-
-  I.index = start - 1;
+  I.index = start < 1 ? 0 : start - 1;
   I.offset = 0;
   I.x = 0;
   I.pindex = 0;
   I.of = 0;
-  I.bound = end;
+  I.bound = end > T.num ? T.num : end;
   I.max = 0;
 
   page(&I);
@@ -788,63 +1058,62 @@ int print(int start, int end)
 void sighandler(int sig)
 {
   get_window_size();
-  if (!E.printing)
-  {
-    I.of = 1;
-    
-  }
+  // if (E.printing)
+  // {
+  //   I.of = 1;
+  //   page(&I);
+  // }
 }
 
 
-/* 
-
+/*  COMMANDS
+   _________
  */
-int split(struct arraystr *ret, str s)
-{
-  struct arraystr ar;
-  str token;
-  int k = 0;
-  int j;
-  char c;
+// int split(struct arraystr *ret, str s)
+// {
+//   struct arraystr ar;
+//   str token;
+//   int k = 0;
+//   int j;
+//   char c;
 
-  ar.lines = NULL;
-  ar.num = 0;
+//   ar.lines = NULL;
+//   ar.num = 0;
 
-  for (j = 0; j <= s.length; j++)
-  {
-    if (j < s.length) c = s.chars[j];
+//   for (j = 0; j <= s.length; j++)
+//   {
+//     if (j < s.length) c = s.chars[j];
 
-    if (k != 0 && (j == s.length || c == ' ' || c == '\t'))
-    {
-      token.length = k;
-      token.chars = (char*)realloc((char*)token.chars, k + 1);
-      if (token.chars == NULL) return MEM_ERROR;
-      token.chars[k] = '\0';
+//     if (k != 0 && (j == s.length || c == ' ' || c == '\t'))
+//     {
+//       token.length = k;
+//       token.chars = (char*)realloc((char*)token.chars, k + 1);
+//       if (token.chars == NULL) return MEM_ERROR;
+//       token.chars[k] = '\0';
 
-      ar.num++;
-      ar.lines = (str*)realloc((str*)ar.lines, ar.num*sizeof(str));
-      ar.lines[ar.num - 1] = token;
+//       ar.num++;
+//       ar.lines = (str*)realloc((str*)ar.lines, ar.num*sizeof(str));
+//       ar.lines[ar.num - 1] = token;
 
-      k = 0;
+//       k = 0;
 
-      while (j < s.length && (s.chars[j + 1] == ' ' || s.chars[j + 1] == '\t')) j++;
-    }
-    else
-    {
-      if (k == 0)
-      {
-        token.chars = (char*)malloc(s.length);
-        if (token.chars == NULL) return MEM_ERROR;
-      }
+//       while (j < s.length && (s.chars[j + 1] == ' ' || s.chars[j + 1] == '\t')) j++;
+//     }
+//     else
+//     {
+//       if (k == 0)
+//       {
+//         token.chars = (char*)malloc(s.length);
+//         if (token.chars == NULL) return MEM_ERROR;
+//       }
 
-      token.chars[k++] = s.chars[j];
-    }
-  }
+//       token.chars[k++] = s.chars[j];
+//     }
+//   }
 
-  *ret = ar;
-  return 0;
-
-}
+//   *ret = ar;
+//   return 0;
+// }
 
 int add_token(struct arraystr *ar, struct buffer *buf)
 {
