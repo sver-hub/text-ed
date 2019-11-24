@@ -118,6 +118,7 @@ void set_tabwidth(int k);
 int print();
 
 int e_insert_after(str toin, int pos);
+int e_replace_substr(int start, int end, str tofind, str toreplace);
 int e_insert_symbol(str *line, char c, int pos);
 int e_edit(str *line, char c, int pos);
 int e_delr(int start, int end);
@@ -317,6 +318,24 @@ int main(int argc, char **argv)
             e_delr(atoi(ar.lines[2].chars), atoi(ar.lines[3].chars));
         else
           err_com();
+      else
+        err_com();
+    }
+    else if (!strcmp(ar.lines[0].chars, "replace"))
+    {
+      if (ar.num < 4 || strcmp(ar.lines[1].chars, "substring"))
+        err_com();
+      else if (ar.num > 4 && atoi(ar.lines[2].chars))
+      {
+        if (ar.num == 6 && atoi(ar.lines[3].chars))
+          e_replace_substr(atoi(ar.lines[2].chars), atoi(ar.lines[3].chars), ar.lines[4], ar.lines[5]);
+        else if (ar.num == 5)
+          e_replace_substr(atoi(ar.lines[2].chars), T.num, ar.lines[3], ar.lines[4]);
+        else
+          err_com();
+      }
+      else if (ar.num == 4)
+        e_replace_substr(1, T.num, ar.lines[2], ar.lines[3]);
       else
         err_com();
     }
@@ -689,6 +708,11 @@ int e_insert_after(str toin, int pos)
 int e_replace_substr(int start, int end, str tofind, str toreplace)
 {
   int j;
+  int i;
+  int idx;
+  int index;
+  char *tmp = NULL;
+  str toin;
 
 
   if (start < 1 || start > T.num || end < 1 || end > T.num)
@@ -699,11 +723,36 @@ int e_replace_substr(int start, int end, str tofind, str toreplace)
 
   for (j = start - 1; j < end; j++)
   {
-    if (idxsubstr(T.lines[j], tofind) != -1)
+    index = idxsubstr(T.lines[j], tofind);
+    if (index != -1)
     {
-      
+      idx = 0;
+      tmp = (char*)malloc(T.lines[j].length - tofind.length + toreplace.length + 1);
+      if (tmp == NULL) return MEM_ERROR;
+
+      for (i = 0; i < index; i++)
+      {
+        tmp[idx++] = T.lines[j].chars[i];
+      }
+      for (i = 0; i < toreplace.length; i++)
+      {
+        tmp[idx++] = toreplace.chars[i];
+      }
+      for (i = index + tofind.length; i < T.lines[j].length; i++)
+      {
+        tmp[idx++] = T.lines[j].chars[i];
+      }
+      tmp[idx] = '\0';
+
+      toin.chars = tmp;
+      toin.length = T.lines[j].length - tofind.length + toreplace.length;
+
+      e_delr(j+1, j+1);
+      e_insert_after(toin, j);
     }
   }
+
+  return 0;
 }
 
 int e_insert_symbol(str *line, char c, int pos)
