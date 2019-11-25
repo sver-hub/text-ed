@@ -339,7 +339,12 @@ int main(int argc, char **argv)
       else
         err_com();
     }
-
+    else if (!strcmp(ar.lines[0].chars, "help"))
+    {
+      if (ar.num > 1)
+        err_com();
+      else e_help();
+    }
 
     else if (!strcmp(ar.lines[0].chars, "exit"))
     {
@@ -617,7 +622,7 @@ void set_tabwidth(int k)
 }
 
 
-/* STRING OPERATIONS
+/* EDITOR OPERATIONS
   __________________
 */
 
@@ -626,6 +631,12 @@ int idxsubstr(str line, str tofind)
   int i;
   int j;
   int found;
+
+  if (tofind.length < 1)
+  {
+    printf("invalid parameter\n");
+    return -1;
+  }
 
   for (i = 0; i <= line.length - tofind.length; i++)
   {
@@ -702,7 +713,7 @@ int e_insert_after(str toin, int pos)
   T.num += strtoadd;
 
   E.saved = 0;
-  return 0;
+  return strtoadd;
 }
 
 int e_replace_substr(int start, int end, str tofind, str toreplace)
@@ -711,6 +722,7 @@ int e_replace_substr(int start, int end, str tofind, str toreplace)
   int i;
   int idx;
   int index;
+  int added;
   char *tmp = NULL;
   str toin;
 
@@ -721,9 +733,21 @@ int e_replace_substr(int start, int end, str tofind, str toreplace)
     return -1;
   }
 
-  for (j = start - 1; j < end; j++)
+  for (j = start - 1; j < end;)
   {
-    index = idxsubstr(T.lines[j], tofind);
+    if (tofind.length <=1 && tofind.chars[0] == '^')
+    {
+      index = 0;
+      tofind.length = 0;
+    }
+    else if (tofind.length <= 1 && tofind.chars[0] == '$')
+    {
+      index = T.lines[j].length;
+      tofind.length = 0;
+    }
+    else
+      index = idxsubstr(T.lines[j], tofind);
+
     if (index != -1)
     {
       idx = 0;
@@ -748,8 +772,11 @@ int e_replace_substr(int start, int end, str tofind, str toreplace)
       toin.length = T.lines[j].length - tofind.length + toreplace.length;
 
       e_delr(j+1, j+1);
-      e_insert_after(toin, j);
+      added = e_insert_after(toin, j);
+      j += added;
+      end += (added - 1);
     }
+    else j++;
   }
 
   return 0;
@@ -1118,52 +1145,6 @@ void sighandler(int sig)
 /*  COMMANDS
    _________
  */
-// int split(struct arraystr *ret, str s)
-// {
-//   struct arraystr ar;
-//   str token;
-//   int k = 0;
-//   int j;
-//   char c;
-
-//   ar.lines = NULL;
-//   ar.num = 0;
-
-//   for (j = 0; j <= s.length; j++)
-//   {
-//     if (j < s.length) c = s.chars[j];
-
-//     if (k != 0 && (j == s.length || c == ' ' || c == '\t'))
-//     {
-//       token.length = k;
-//       token.chars = (char*)realloc((char*)token.chars, k + 1);
-//       if (token.chars == NULL) return MEM_ERROR;
-//       token.chars[k] = '\0';
-
-//       ar.num++;
-//       ar.lines = (str*)realloc((str*)ar.lines, ar.num*sizeof(str));
-//       ar.lines[ar.num - 1] = token;
-
-//       k = 0;
-
-//       while (j < s.length && (s.chars[j + 1] == ' ' || s.chars[j + 1] == '\t')) j++;
-//     }
-//     else
-//     {
-//       if (k == 0)
-//       {
-//         token.chars = (char*)malloc(s.length);
-//         if (token.chars == NULL) return MEM_ERROR;
-//       }
-
-//       token.chars[k++] = s.chars[j];
-//     }
-//   }
-
-//   *ret = ar;
-//   return 0;
-// }
-
 int add_token(struct arraystr *ar, struct buffer *buf)
 {
   str* tmp = NULL;
@@ -1206,7 +1187,7 @@ int read_command(struct arraystr *ar)
     {
       if (!par)
       {
-        if (buf.len > 0) add_token(ar, &buf);
+        if (buf.len > 0 || parn == 2) add_token(ar, &buf);
         break;
       }
       else if (par && !trpar)
@@ -1248,7 +1229,7 @@ int read_command(struct arraystr *ar)
     }
     else if (!par && (c == ' ' || c == '\t'))
     { 
-      if (buf.len > 0) add_token(ar, &buf);
+      if (buf.len > 0 || parn == 2) add_token(ar, &buf);
     }
     else if (c == '\"') 
     {
