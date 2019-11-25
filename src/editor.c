@@ -76,6 +76,8 @@ void freear(struct arraystr *ar)
   ar->num = 0;
 }
 
+struct arraystr ahelp;
+
 
 
 struct config
@@ -115,13 +117,15 @@ void set_wrap(int k);
 void set_numbers(int k);
 void set_tabwidth(int k);
 
-int print();
+int print(int start, int end, struct arraystr *ar);
 
-int e_insert_after(str toin, int pos);
+int e_insert_after(str toin, int pos, struct arraystr *ar);
 int e_replace_substr(int start, int end, str tofind, str toreplace);
 int e_insert_symbol(str *line, char c, int pos);
 int e_edit(str *line, char c, int pos);
 int e_delr(int start, int end);
+void e_help();
+void e_exit();
 
 int split(struct arraystr *ar, str s);
 int read_command(struct arraystr *ar);
@@ -212,25 +216,25 @@ int main(int argc, char **argv)
         if (ar.num > 2)
           err_com();
         else
-          print(1, T.num);
+          print(1, T.num, &T);
       }
       else if (!strcmp(ar.lines[1].chars, "range"))
       {
         if (ar.num == 2)
-          print(1, T.num);
+          print(1, T.num, &T);
         else if (ar.num == 3)
         {
           if (!atoi(ar.lines[2].chars)) 
             err_com();
           else 
-            print(atoi(ar.lines[2].chars), T.num);
+            print(atoi(ar.lines[2].chars), T.num, &T);
         }
         else if (ar.num == 4)
         {
           if (!atoi(ar.lines[2].chars) || !atoi(ar.lines[3].chars))
             err_com();
           else
-            print(atoi(ar.lines[2].chars), atoi(ar.lines[3].chars));
+            print(atoi(ar.lines[2].chars), atoi(ar.lines[3].chars), &T);
         }
         else
           err_com();
@@ -286,7 +290,7 @@ int main(int argc, char **argv)
       else if (!strcmp(ar.lines[1].chars, "after"))
       {
         if (ar.num == 3)
-          e_insert_after(ar.lines[2], T.num);
+          e_insert_after(ar.lines[2], T.num, &T);
         else if (ar.num == 4)
         {
           if (atoi(ar.lines[2].chars))
@@ -295,10 +299,10 @@ int main(int argc, char **argv)
             if (atoi(ar.lines[2].chars) < 0 || atoi(ar.lines[2].chars) > T.num)
               printf("out of bounds\n");
             else
-              e_insert_after(ar.lines[3], atoi(ar.lines[2].chars));
+              e_insert_after(ar.lines[3], atoi(ar.lines[2].chars), &T);
           }
           else if (ar.lines[2].length == 1 && ar.lines[2].chars[0] == '0')
-            e_insert_after(ar.lines[3], 0);
+            e_insert_after(ar.lines[3], 0, &T);
           else err_com();
         }
         else err_com();
@@ -351,20 +355,16 @@ int main(int argc, char **argv)
       if (ar.num == 2 && !strcmp(ar.lines[1].chars, "force"))
       {
         freear(&ar);
-        freear(&T);
-        exit(0);
+        e_exit();
       }
       else if (ar.num == 1)
-      {
         if (E.saved)
         {
           freear(&ar);
-          freear(&T);
-          exit(0);
+          e_exit();
         }
         else 
           printf("progress wasn`t saved, unable to exit\n");
-      }
       else
         err_com();
     }
@@ -380,6 +380,55 @@ int main(int argc, char **argv)
 
 
 
+
+void init_help()
+{
+  struct buffer buf;
+  buf.chars = NULL;
+  buf.len = 0;
+  buf.mem = 0;
+
+  append(&buf, "________________________________TETX-ED_____________________________", 69);
+  append(&buf, "\n\n(.) - required parameter\n[.] - optional parameter\n\".\" - parameter has to be in quotes", 87);
+  append(&buf, "\n\n\nCOMMAND LIST:", 16);
+  append(&buf, "\n\n\tTEXT VIEW", 12);
+  append(&buf, "\n\n\t\tset wrap (yes/no) -- enables/disables wrapping", 50);
+  append(&buf, "\n\n\t\tset numbers (yes/no) -- enables/disables line counter", 57);
+  append(&buf, "\n\n\t\tset tabwidth (X) -- sets tabwidth to X", 42);
+  append(&buf, "\n\n\t\tprint pages -- show the whole text; while active:\n\t\t\t-press space to show next page",87);
+  append(&buf, "\n\t\t\t-press \'<\'/\''>\'' to scroll left/right (only if wrap is off)", 61);
+  append(&buf, "\n\n\t\tprint range [X] [Y] -- shows lines in selected boundaries (from X to Y)", 75);
+  append(&buf, "\n\t\t\t-if used without Y, prints lines from X to END", 51);
+  append(&buf, "\n\t\t\t-if used without X and Y, prints all the lines", 50);
+  append(&buf, "\n\n\tLINE INSERT", 14);
+  append(&buf, "\n\n\t\tinsert after [X] (\"S\") -- puts string S after line X in text", 65);
+  append(&buf, "\n\t\t\t-if used without X, puts S at the end of text", 49);
+  append(&buf, "\n\t\t\t-S can be input in several lines like \"\"\"S\"\"\"", 49);
+  append(&buf, "\n\n\tLINE EDIT", 12);
+  append(&buf, "\n\n\t\tedit string (X) (Y) (C) -- changes symbol in line X in position Y to C", 74);
+  append(&buf, "\n\n\t\tinsert symbol (X) (Y) (C) -- inserts symbol C in line X in position Y", 73);
+  append(&buf, "\n\n\t\treplace substring [X] [Y] (\"R\") (\"S\") -- replaces sequence R to S in lines", 78);
+  append(&buf, "\n\t\t\t-use with X to change lines from X to END", 45);
+  append(&buf, "\n\t\t\t-use with X and Y to change lines from X to Y", 49);
+  append(&buf, "\n\t\t\t-R can be \'^\'/\'$\' to insert S to beginning/end of lines", 60);
+  append(&buf, "\n\n\t\tdelete range (X) [Y] -- removes lines from X to Y (or END if Y is not specified)", 85);
+  append(&buf, "\n\n\t\tdelete comments (T) -- removes comments of type T (pascal/c/c++/shell)", 74);
+  append(&buf, "\n\n\tTECH COMMANDS", 16);
+  append(&buf, "\n\n\t\texit -- closes editor if saved (use \"exit force\" to close even if not saved)", 80);
+  append(&buf, "\n\n\t\tread (\"F\") -- reads lines from file F to memory", 51);
+  append(&buf, "\n\n\t\topen (\"F\") -- read + remembers F as filename", 48);
+  append(&buf, "\n\n\t\twrite [\"F\"] -- writes lines to file F (or to filename if F is not specified)", 80);
+  append(&buf, "\n\n\t\tset name (\"S\") -- sets filename to S", 40);
+
+  ahelp.lines = NULL;
+  ahelp.num = 0;
+  str tmp;
+  tmp.chars = buf.chars;
+  tmp.length = buf.len;
+  e_insert_after(tmp, 0, &ahelp);
+  E.saved = 1;
+}
+
 int init()
 {
   E.tabwidth = 4;
@@ -392,10 +441,10 @@ int init()
   get_window_size();
   init_modes();
   signal(SIGWINCH, sighandler);
+  init_help();
 
   return 0;
 }
-
 /* LOW LEVEL STUFF 
   ________________
 */
@@ -659,7 +708,7 @@ int idxsubstr(str line, str tofind)
   return -1;
 }
 
-int e_insert_after(str toin, int pos)
+int e_insert_after(str toin, int pos, struct arraystr *ar)
 {
   int j;
   int i;
@@ -673,12 +722,12 @@ int e_insert_after(str toin, int pos)
     if (toin.chars[j] == '\n')
       strtoadd++;
 
-  newlines = malloc((T.num + strtoadd)*sizeof(str));
+  newlines = malloc((ar->num + strtoadd)*sizeof(str));
   if (newlines == NULL) return MEM_ERROR;
 
   for (j = 0; j < pos; j++)
   {
-    newlines[idx++] = T.lines[j];
+    newlines[idx++] = ar->lines[j];
   }
 
   tmp = malloc(toin.length);
@@ -703,14 +752,15 @@ int e_insert_after(str toin, int pos)
       tmp[k++] = toin.chars[i];
   }
 
-  for(; j < T.num; j++)
+  for(; j < ar->num; j++)
   {
-    newlines[idx++] = T.lines[j];
+    newlines[idx++] = ar->lines[j];
   }
 
-  free(T.lines);
-  T.lines = newlines;
-  T.num += strtoadd;
+  if (ar->lines != NULL)
+    free(ar->lines);
+  ar->lines = newlines;
+  ar->num += strtoadd;
 
   E.saved = 0;
   return strtoadd;
@@ -772,7 +822,7 @@ int e_replace_substr(int start, int end, str tofind, str toreplace)
       toin.length = T.lines[j].length - tofind.length + toreplace.length;
 
       e_delr(j+1, j+1);
-      added = e_insert_after(toin, j);
+      added = e_insert_after(toin, j, &T);
       j += added;
       end += (added - 1);
     }
@@ -864,6 +914,29 @@ int e_delr(int start, int end)
   return 0;
 }
 
+void e_help()
+{
+  int w = E.wrap;
+  int n = E.numbers;
+  int t = E.tabwidth;
+  E.wrap = 0;
+  E.numbers = 0;
+  E.tabwidth = 4;
+
+  print(1, ahelp.num, &ahelp);
+
+  E.wrap = w;
+  E.numbers = n;
+  E.tabwidth = t;
+}
+
+void e_exit()
+{
+  freear(&T);
+  freear(&ahelp);
+  exit(0);
+}
+
 /* PRINT 
   ____________
 */
@@ -929,7 +1002,7 @@ struct pagesInfo
   int max;
 };
 
-int page(struct pagesInfo *I)
+int page(struct pagesInfo *I, struct arraystr *ar)
 {
   int width;
   int rlen;
@@ -983,7 +1056,7 @@ int page(struct pagesInfo *I)
 
     if (!E.wrap)
     {
-      rlen = line_insert_tabs(&rend, T.lines[I->index]);
+      rlen = line_insert_tabs(&rend, ar->lines[I->index]);
       if (rlen == MEM_ERROR) return MEM_ERROR;
       
       rlen -= I->offset;
@@ -991,7 +1064,7 @@ int page(struct pagesInfo *I)
       if (rlen > width) rlen = width;
 
       append(&buf, &rend[I->offset], rlen);
-      if (I->max < T.lines[I->index].length) I->max = T.lines[I->index].length;
+      if (I->max < ar->lines[I->index].length) I->max = ar->lines[I->index].length;
 
       free(rend);
     }
@@ -1007,7 +1080,7 @@ int page(struct pagesInfo *I)
         I->x = 0;
       }
 
-      while (j < T.lines[I->index].length)
+      while (j < ar->lines[I->index].length)
       {
         if (idx == numrows*(width + 6) - 1)
         {
@@ -1027,7 +1100,7 @@ int page(struct pagesInfo *I)
           numrows++;
           
         }
-        else if (T.lines[I->index].chars[j] == '\t')
+        else if (ar->lines[I->index].chars[j] == '\t')
         {
           do 
           {
@@ -1043,7 +1116,7 @@ int page(struct pagesInfo *I)
         }
         else
         {
-          append(&buf, &T.lines[I->index].chars[j++], 1);
+          append(&buf, &ar->lines[I->index].chars[j++], 1);
           idx++;
         } 
       }
@@ -1060,7 +1133,7 @@ int page(struct pagesInfo *I)
 }
 
 
-int print(int start, int end) 
+int print(int start, int end, struct arraystr *ar) 
 {
   char c;
   int printed;
@@ -1071,10 +1144,10 @@ int print(int start, int end)
   I.x = 0;
   I.pindex = 0;
   I.of = 0;
-  I.bound = end > T.num ? T.num : end;
+  I.bound = end > ar->num ? ar->num : end;
   I.max = 0;
 
-  page(&I);
+  page(&I, ar);
 
   E.printing = 1;
 
@@ -1086,7 +1159,7 @@ int print(int start, int end)
 
     if (c == ' ')
     {
-      printed = page(&I);
+      printed = page(&I, ar);
       if (printed == MEM_ERROR) return MEM_ERROR;
       if (printed == 0) 
       {
@@ -1100,7 +1173,7 @@ int print(int start, int end)
       {
         I.offset = I.max - E.width + E.blank + 1;
         I.of = 1;
-        page(&I);
+        page(&I, ar);
       }
 
     }
@@ -1116,13 +1189,13 @@ int print(int start, int end)
     {
       I.offset++;
       I.of = 1;
-      page(&I);
+      page(&I, ar);
     }
     else if (c == '<' && E.wrap == 0 && I.offset > 0)
     {
       I.offset--;
       I.of = 1;
-      page(&I);
+      page(&I, ar);
     }
     c = 0;
   }
