@@ -124,6 +124,7 @@ int e_replace_substr(int start, int end, str tofind, str toreplace);
 int e_insert_symbol(str *line, char c, int pos);
 int e_edit(str *line, char c, int pos);
 int e_delr(int start, int end);
+int e_delcom(int mode);
 void e_help();
 void e_exit();
 
@@ -322,8 +323,19 @@ int main(int argc, char **argv)
             e_delr(atoi(ar.lines[2].chars), atoi(ar.lines[3].chars));
         else
           err_com();
-      else
-        err_com();
+      else if (ar.num == 3 && !strcmp(ar.lines[1].chars, "comments"))
+      {
+        if (!strcmp(ar.lines[2].chars, "pascal"))
+          e_delcom(1);
+        else if (!strcmp(ar.lines[2].chars, "shell"))
+          e_delcom(2);
+        else if (!strcmp(ar.lines[2].chars, "c"))
+          e_delcom(3);
+        else if (!strcmp(ar.lines[2].chars, "c++"))
+          e_delcom(4);
+      }
+      else err_com();
+        
     }
     else if (!strcmp(ar.lines[0].chars, "replace"))
     {
@@ -584,8 +596,12 @@ int e_read(char *filename)
   FILE *fp = fopen(filename, "r");
   if (fp == NULL) 
   {
-  	printf("failed to open file\n");
-  	return -1;
+    fp = fopen(filename, "w");
+    if (fp == NULL)
+    {
+  	 printf("failed to open file\n");
+  	 return -1;
+    }
   }
 
   T.num = read_file(fp, &T.lines);
@@ -911,6 +927,112 @@ int e_delr(int start, int end)
   T.num = len;
 
   E.saved = 0;
+  return 0;
+}
+
+int e_delcom(int mode)
+{
+  //1 pascal 2 shell 3 c 4 c++
+  int j;
+  int i;
+  int quotes = 0;
+  char *tmp = NULL;
+  struct buffer buf;
+  buf.chars = NULL;
+  buf.len = 0;
+  buf.mem = 0;
+
+  for (j = 0; j < T.num; j++)
+  {
+    for (i = 0; i < T.lines[j].length - 1; i++)
+    {
+      if ((mode <= 2 && T.lines[j].chars[i] == '\'') || (mode >= 2 && T.lines[j].chars[i] == '\"'))
+        quotes = quotes ? 0 : 1;
+      if (!quotes)
+      {
+        if ((mode == 4 && T.lines[j].chars[i] == '/' && T.lines[j].chars[i + 1] == '/')
+           || (mode == 2 && T.lines[j].chars[i] == '#'))
+        {
+          tmp = (char*)realloc(T.lines[j].chars, i + 1);
+          if (tmp == NULL) return MEM_ERROR;
+
+          tmp[i] = '\0';
+          T.lines[j].chars = tmp;
+          T.lines[j].length = i;
+
+          break;
+        }
+        else if (((mode == 1 && T.lines[j].chars[i] == '(') || (mode == 3 && T.lines[j].chars[i] == '/')) 
+                  && T.lines[j].chars[i + 1] == '*')
+        {
+          int rows;
+          int broke = 0;
+          int start = i;
+          for (rows = 0; j + rows < T.num; rows++)
+          {
+            while (i < T.lines[j + rows].length - 1)
+            {
+              if (T.lines[j + rows].chars[i] == '*' && ((mode == 1 && T.lines[j + rows].chars[i + 1] == ')')
+                  || (mode == 3 && T.lines[j + rows].chars[i + 1] == '/')))
+              {
+                broke = 1;
+                break;
+              }
+              i++;
+            }
+            if (broke) break;
+            i = 0;
+          }
+
+          if (rows == 0)
+          {
+            append(&buf, T.lines[j].chars, start);
+            append(&buf, &T.lines[j].chars[i + 2], T.lines[j].length - i - 2);
+            append(&buf, "\0", 1);
+
+            tmp = (char*)realloc(buf.chars, buf.len);
+            if (tmp == NULL) return MEM_ERROR;
+
+            free(T.lines[j].chars);
+            T.lines[j].chars = tmp;
+            T.lines[j].length = buf.len - 1;
+
+            buf.chars = NULL;
+            buf.len = 0;
+            buf.mem = 0;
+          }
+          else
+          {
+            tmp = (char*)realloc(T.lines[j].chars, start + 1);
+            if (tmp == NULL) return MEM_ERROR;
+
+            tmp[start] = '\0';
+            T.lines[j].chars = tmp;
+            T.lines[j].length = start;
+            
+            if (T.lines[j + rows].length > i + 2)
+              append(&buf, &T.lines[j + rows].chars[i + 2], T.lines[j + rows].length - i - 2);
+            append(&buf, "\0", 1);
+            tmp = (char*)realloc(buf.chars, buf.len);
+            if (tmp == NULL) return MEM_ERROR;
+
+            T.lines[j + rows].chars = tmp;
+            T.lines[j + rows].length = buf.len - 1;
+            i = 0;
+
+
+            buf.chars = NULL;
+            buf.len = 0;
+            buf.mem = 0;
+            
+            if (rows > 1)
+              e_delr(j + 2, j + 1 + rows);
+          }
+        }
+
+      }
+    }
+  }
   return 0;
 }
 
