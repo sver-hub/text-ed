@@ -314,7 +314,6 @@ int main(int argc, char **argv)
         {
           if (atoi(ar.lines[2].chars))
           {
-            printf("%d\n", atoi(ar.lines[2].chars));
             if (atoi(ar.lines[2].chars) < 0 || atoi(ar.lines[2].chars) > T.num)
               printf("out of bounds\n");
             else
@@ -385,13 +384,13 @@ int main(int argc, char **argv)
       if (ar.num == 2 && !strcmp(ar.lines[1].chars, "force"))
       {
         freear(&ar);
-        e_exit();
+        break;
       }
       else if (ar.num == 1)
         if (E.saved)
         {
           freear(&ar);
-          e_exit();
+          break;
         }
         else 
           printf("progress wasn`t saved, unable to exit\n");
@@ -404,7 +403,10 @@ int main(int argc, char **argv)
 
     freear(&ar);
   
-  } //while
+  }
+
+  freear(&ahelp);
+  freear(&T);
   
 } //main
 
@@ -732,6 +734,12 @@ int e_insert_after(str toin, int pos, struct arraystr *ar)
   str* newlines = NULL;
   char *tmp = NULL;
 
+  if (pos > ar->num || pos < 0) 
+    {
+      printf("out of bounds\n");
+      return -1;
+    }
+
   for (j = 0; j < toin.length; j++)
     if (toin.chars[j] == '\n')
       strtoadd++;
@@ -773,6 +781,7 @@ int e_insert_after(str toin, int pos, struct arraystr *ar)
 
   if (ar->lines != NULL)
     free(ar->lines);
+
   ar->lines = newlines;
   ar->num += strtoadd;
 
@@ -799,7 +808,7 @@ int e_replace_substr(int start, int end, str tofind, str toreplace)
 
   for (j = start - 1; j < end;)
   {
-    if (tofind.length <=1 && tofind.chars[0] == '^')
+    if (tofind.length <= 1 && tofind.chars[0] == '^')
     {
       index = 0;
       tofind.length = 0;
@@ -837,6 +846,8 @@ int e_replace_substr(int start, int end, str tofind, str toreplace)
 
       e_delr(j+1, j+1);
       added = e_insert_after(toin, j, &T);
+
+      free(toin.chars);
       j += added;
       end += (added - 1);
     }
@@ -1048,13 +1059,6 @@ void e_help()
   E.wrap = w;
   E.numbers = n;
   E.tabwidth = t;
-}
-
-void e_exit()
-{
-  freear(&T);
-  freear(&ahelp);
-  exit(0);
 }
 
 /* PRINT 
